@@ -1,0 +1,11 @@
+{
+  "Author": "Yhumi",
+  "Name": "Item Display",
+  "Punchline": "Display items and their count across inventories.",
+  "Description": "Display items and their count across inventories. Setup with /itemdisplay",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "items",
+    "ui"
+  ]
+}

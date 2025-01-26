@@ -1,0 +1,6 @@
+[submodule "ECommons"]
+	path = ECommons
+	url = git@github.com:NightmareXIV/ECommons.git
+[submodule "OtterGui"]
+	path = OtterGui
+	url = git@github.com:Ottermandias/OtterGui.git
