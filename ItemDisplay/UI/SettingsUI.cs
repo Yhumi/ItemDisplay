@@ -131,11 +131,12 @@ namespace ItemDisplay.UI
             {
                 var itemCommand = item.TextCommand ?? string.Empty;
                 var showDisplay = item.ShowDisplay;
+                var showCount = item.ShowCount;
                 var itemScale = item.Scale;
 
                 if (ImGui.CollapsingHeader($"{item.ItemName} ({item.ItemId})"))
                 {
-                    if (ImGui.Checkbox("Show Display", ref showDisplay))
+                    if (ImGui.Checkbox($"Show Display###Disp-{item.ItemId}", ref showDisplay))
                     {
                         item.ShowDisplay = showDisplay;
 
@@ -144,8 +145,19 @@ namespace ItemDisplay.UI
 
                         Task.Run(() => P.UpdateAvailableItemCounts(item.ItemId));
                     }
+                    
 
-                    if (ImGui.SliderFloat("Item Size Scaling", ref itemScale, 0.1f, 10f))
+                    if (ImGui.Checkbox($"Show Count###Count-{item.ItemId}", ref showCount))
+                    {
+                        item.ShowCount = showCount;
+
+                        P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
+                        P.Config.Save();
+
+                        Task.Run(() => P.UpdateAvailableItemCounts(item.ItemId));
+                    }
+
+                    if (ImGui.SliderFloat($"Item Size Scaling###Scale-{item.ItemId}", ref itemScale, 0.1f, 10f))
                     {
                         item.Scale = itemScale;
 
