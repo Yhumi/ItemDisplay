@@ -111,7 +111,7 @@ namespace ItemDisplay.UI
                         new Vector2(ImGui.GetWindowPos().X + imageStart.X + imageSize.X, ImGui.GetWindowPos().Y + imageStart.Y + imageSize.Y), 
                         $"x{ItemModel.ItemCount:n0}", 
                         ImGuiColors.DalamudWhite,
-                        1.3f * ItemModel.Scale,
+                        P.Config.TextScale * ItemModel.Scale,
                         true, false);
                 }
             }  

@@ -18,6 +18,7 @@ public class Configuration : IPluginConfiguration
 
     public bool ShowDisplay { get; set; } = true;
     public bool MoveMode { get; set; } = false;
+    public float TextScale { get; set; } = 1.3f;
 
 
     // the below exist just to make saving less cumbersome

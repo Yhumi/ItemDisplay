@@ -69,6 +69,12 @@ namespace ItemDisplay.UI
             P.Config.Save();
         }
 
+        public async void SetTextFloat(float textScale)
+        {
+            P.Config.TextScale = textScale;
+            P.Config.Save();
+        }
+
         public override async void Draw()
         {
             P.Config.ItemDisplays.TryGetValue(Svc.ClientState.LocalContentId, out var itemDisplays);
@@ -89,6 +95,12 @@ namespace ItemDisplay.UI
             }
             ImGuiComponents.HelpMarker($"Allow the clicking and dragging of Item Displays.");
             ImGui.TextWrapped("Note: Move mode will disable macro functionality while enabled.");
+
+            float textScale = P.Config.TextScale;
+            if (ImGui.SliderFloat("Text Scaling", ref textScale, 0.1f, 3f))
+            {
+                Task.Run(() => SetTextFloat(textScale));
+            }
 
             ImGui.Separator();
 
