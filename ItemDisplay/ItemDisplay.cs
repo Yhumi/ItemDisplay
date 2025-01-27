@@ -19,6 +19,8 @@ using ImGuiScene;
 using static FFXIVClientStructs.FFXIV.Client.System.Framework.Framework.Delegates;
 using static FFXIVClientStructs.FFXIV.Client.UI.Misc.CharaView.Delegates;
 using Dalamud.Interface.Textures.TextureWraps;
+using Dalamud.Game.Inventory;
+using ECommons.EzEventManager;
 
 namespace ItemDisplay;
 
@@ -33,6 +35,9 @@ public sealed class ItemDisplay : IDalamudPlugin
     internal Configuration Config;
 
     internal Dictionary<uint, ItemDisplayUI> DisplayUIs = new();
+
+    internal Queue<ItemDisplayModel> ItemModelsForUpdate = new();
+    internal bool UpdatingItem = false;
 
     internal TextureCache Icons;
     internal StyleModel Style;
@@ -65,8 +70,23 @@ public sealed class ItemDisplay : IDalamudPlugin
         Svc.ClientState.Logout += PlayerLoggedOut;
         Svc.ClientState.Login += PlayerLoggedIn;
 
+        Svc.Framework.Update += FrameworkUpdate;
+
         Style = StyleModel.GetFromCurrent()!;
         Task.Run(() => LoadItems());
+    }
+
+    private void FrameworkUpdate(object _)
+    {
+        if (UpdatingItem) return;
+        if (!InventoryService.InventoryAccess() || !InventoryService.SaddlebagAccess()) return;
+
+        if (ItemModelsForUpdate.TryDequeue(out var item))
+        {
+            Svc.Log.Debug($"[FrameworkUpdate] Updating from tick for {item.ItemName}");
+            UpdatingItem = true;
+            Task.Run(() => UpdateFromTick(item.ItemId));
+        }
     }
 
     private void PlayerLoggedOut(int type, int code)
@@ -94,8 +114,11 @@ public sealed class ItemDisplay : IDalamudPlugin
         Svc.GameInventory.InventoryChangedRaw -= InventoryChanged;
 
         Svc.ClientState.Logout -= PlayerLoggedOut;
+        Svc.ClientState.Login -= PlayerLoggedIn;
 
-        foreach(var item in DisplayUIs)
+        Svc.Framework.Update -= FrameworkUpdate;
+
+        foreach (var item in DisplayUIs)
         {
             item.Value.Dispose();
             DisplayUIs.Remove(item);
@@ -116,31 +139,22 @@ public sealed class ItemDisplay : IDalamudPlugin
         PluginUi.IsOpen = true;
     }
 
-    public void InventoryChanged(IReadOnlyCollection<InventoryEventArgs> events)
+    public async void InventoryChanged(IReadOnlyCollection<InventoryEventArgs> events)
     {
+        if (Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BetweenAreas]) return;
         if (P.Config.ItemDisplays.TryGetValue(Svc.ClientState.LocalContentId, out var itemDisplays))
         {
             if (itemDisplays == null) return;
 
-            if (events.Any(x =>
-            x.Item.ContainerType == Dalamud.Game.Inventory.GameInventoryType.Inventory1 ||
-            x.Item.ContainerType == Dalamud.Game.Inventory.GameInventoryType.Inventory2 ||
-            x.Item.ContainerType == Dalamud.Game.Inventory.GameInventoryType.Inventory3 ||
-            x.Item.ContainerType == Dalamud.Game.Inventory.GameInventoryType.Inventory4 ||
-            x.Item.ContainerType == Dalamud.Game.Inventory.GameInventoryType.SaddleBag1 ||
-            x.Item.ContainerType == Dalamud.Game.Inventory.GameInventoryType.SaddleBag2 ||
-            x.Item.ContainerType == Dalamud.Game.Inventory.GameInventoryType.PremiumSaddleBag1 ||
-            x.Item.ContainerType == Dalamud.Game.Inventory.GameInventoryType.PremiumSaddleBag2))
+            var intersectList = itemDisplays
+                .Select(x => x.ItemId)
+                .Intersect(events.Select(x => x.Item.ItemId));
+            if (intersectList.Any())
             {
-                var intersectList = itemDisplays
-                    .Select(x => x.ItemId)
-                    .Intersect(events.Select(x => x.Item.ItemId));
-                if (intersectList.Any())
+                foreach (var item in intersectList)
                 {
-                    foreach (var item in intersectList)
-                    {
-                        Task.Run(() => UpdateItemCount(item));
-                    }
+                    var e = events.First(x => x.Item.ItemId == item);
+                    Task.Run(() => UpdateAvailableItemCounts(item));                  
                 }
             }
         }
@@ -151,18 +165,29 @@ public sealed class ItemDisplay : IDalamudPlugin
         if (P.Config.ItemDisplays.TryGetValue(Svc.ClientState.LocalContentId, out var itemDisplays))
         {
             if (itemDisplays == null) itemDisplays = new();
+            var requireUpdating = new List<ItemDisplayModel>();
+
             foreach (var item in itemDisplays)
             {
                 Svc.Log.Info($"Fetching count for {item.ItemName}");
-                var itemCount = await InventoryService.GetItemCount(item.ItemId);
-                Svc.Log.Info($"Count: {itemCount}");
-                item.ItemCount = itemCount;
+
+                var updatedFully = SetItemCountsOnModel(item);
+                if (!updatedFully) requireUpdating.Add(item);
 
                 await AddItemUI(item);
             }
 
             P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
             P.Config.Save();
+
+            foreach (var item in requireUpdating)
+            {
+                if (!ItemModelsForUpdate.Any(x => x.ItemId == item.ItemId))
+                {
+                    Svc.Log.Debug($"Queueing {item.ItemName} for update.");
+                    ItemModelsForUpdate.Enqueue(item);
+                }   
+            }    
         }
     }
 
@@ -172,7 +197,9 @@ public sealed class ItemDisplay : IDalamudPlugin
         if (itemDisplays == null) itemDisplays = new();
           
         Svc.Log.Info($"Fetching count for {model.ItemName}");
-        model.ItemCount = await InventoryService.GetItemCount(model.ItemId);
+
+        var updatedFully = SetItemCountsOnModel(model);
+
         Svc.Log.Info($"Count: {model.ItemCount}");
 
         itemDisplays.Add(model);
@@ -180,6 +207,12 @@ public sealed class ItemDisplay : IDalamudPlugin
 
         P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
         P.Config.Save();
+
+        if (!updatedFully && !ItemModelsForUpdate.Any(x => x.ItemId == model.ItemId))
+        {
+            Svc.Log.Debug($"Queueing {model.ItemName} for update.");
+            ItemModelsForUpdate.Enqueue(model);
+        }
     }
 
     public async Task RemoveItem(uint itemId)
@@ -200,17 +233,18 @@ public sealed class ItemDisplay : IDalamudPlugin
         }
     }
 
-    public async Task UpdateItemCount(uint itemId)
+    public async Task UpdateAvailableItemCounts(uint itemId)
     {
         if (P.Config.ItemDisplays.TryGetValue(Svc.ClientState.LocalContentId, out var itemDisplays))
         {
             if (itemDisplays == null) itemDisplays = new();
 
             var item = itemDisplays.Where(x => x.ItemId == itemId).FirstOrDefault();
+            bool fullyUpdated = true;
             if (item != null)
             {
-                Svc.Log.Info($"Fetching count for {item.ItemName}");
-                item.ItemCount = await InventoryService.GetItemCount(item.ItemId);
+                fullyUpdated = SetItemCountsOnModel(item);
+
                 Svc.Log.Info($"Count: {item.ItemCount}");
 
                 if (DisplayUIs.TryGetValue(itemId, out var itemDisplay))
@@ -220,8 +254,20 @@ public sealed class ItemDisplay : IDalamudPlugin
             }
 
             P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
-            P.Config.Save();            
+            P.Config.Save();
+
+            if (item != null && !fullyUpdated && !ItemModelsForUpdate.Any(x => x.ItemId == item.ItemId))
+            {
+                Svc.Log.Debug($"Queueing {item.ItemName} for update.");
+                ItemModelsForUpdate.Enqueue(item);
+            }
         }
+    }
+
+    public async Task UpdateFromTick(uint itemId)
+    {
+        await UpdateAvailableItemCounts(itemId);
+        UpdatingItem = false;
     }
 
     public async Task AddItemUI(ItemDisplayModel model)
@@ -241,5 +287,18 @@ public sealed class ItemDisplay : IDalamudPlugin
             itemDisplay.Dispose();
             DisplayUIs.Remove(model.ItemId);
         }
+    }
+
+    public bool SetItemCountsOnModel(ItemDisplayModel model)
+    {
+        bool fullyUpdated = InventoryService.InventoryAccess() && InventoryService.SaddlebagAccess();
+
+        if (InventoryService.InventoryAccess())
+            model.InventoryCount = InventoryService.GetInventoryItemCount(model.ItemId);
+
+        if (InventoryService.SaddlebagAccess())
+            model.SaddlebagCount = InventoryService.GetSaddlebagItemCount(model.ItemId);
+
+        return fullyUpdated;
     }
 }

@@ -31,8 +31,9 @@ namespace ItemDisplay.UI
             RespectCloseHotkey = false;
             IsOpen = true;
 
+            this.SetMinSize(80f, 80f);
             Size = ImGuiHelpers.ScaledVector2(80f, 80f);
-
+            
             ItemModel = model;
             P.ws.AddWindow(this);
         }
@@ -51,6 +52,7 @@ namespace ItemDisplay.UI
         public override async void Draw()
         {
             if (!P.Config.ShowDisplay) return;
+            if (!ItemModel.ShowDisplay) return;
 
             var iconId = LuminaService.GetIconId(ItemModel.ItemId);
             var icon = Svc.Texture.GetFromGameIcon(new GameIconLookup(iconId));
@@ -60,7 +62,24 @@ namespace ItemDisplay.UI
                 icon.TryGetWrap(out var wrap, out _);
                 if (wrap != null)
                 {
-                    ImGui.Image(wrap.ImGuiHandle, ImGuiHelpers.ScaledVector2(64f, 64f), Vector2.Zero, Vector2.One);
+                    if (String.IsNullOrWhiteSpace(ItemModel.TextCommand))
+                    {
+                        ImGui.Image(wrap.ImGuiHandle, ImGuiHelpers.ScaledVector2(64f, 64f), Vector2.Zero, Vector2.One);
+                    }
+                    else
+                    {
+                        if(ImGui.ImageButton(wrap.ImGuiHandle, ImGuiHelpers.ScaledVector2(64f, 64f), Vector2.Zero, Vector2.One, 0))
+                        {
+                            string[] commandList = ItemModel.TextCommand.Contains(';') ? ItemModel.TextCommand.Split(';') : [ItemModel.TextCommand];
+                            foreach (var command in commandList)
+                            {
+                                if (String.IsNullOrWhiteSpace(command)) continue;
+                                var textCommand = CommandService.FormatCommand(command);
+                                Task.Run(() => Chat.SendMessage($"{textCommand}"));
+                            }
+                        }
+                    }
+                    
 
                     DrawQuantText(
                         new Vector2(ImGui.GetWindowPos().X + 74f, ImGui.GetWindowPos().Y + 47f), 

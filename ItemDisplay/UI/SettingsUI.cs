@@ -10,6 +10,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Dalamud.Interface.Components;
+using static FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentMiragePrismPrismBox.Delegates;
 
 namespace ItemDisplay.UI
 {
@@ -94,6 +95,7 @@ namespace ItemDisplay.UI
                 }
             }
 
+            ImGui.SameLine();
             if (ImGui.Button("Remove Item Display"))
             {
                 Svc.Log.Info($"Removing item: {ItemName}");
@@ -104,11 +106,36 @@ namespace ItemDisplay.UI
             }
 
             ImGui.Separator();
-            ImGui.TextWrapped("Item Displays:");
 
             foreach (var item in itemDisplays)
             {
-                ImGui.TextWrapped($"{item.ItemName} ({item.ItemId})");
+                var itemCommand = item.TextCommand ?? string.Empty;
+                var showDisplay = item.ShowDisplay;
+
+                if (ImGui.CollapsingHeader($"{item.ItemName} ({item.ItemId})"))
+                {
+                    if (ImGui.Checkbox("Show Display", ref showDisplay))
+                    {
+                        item.ShowDisplay = showDisplay;
+
+                        P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
+                        P.Config.Save();
+
+                        Task.Run(() => P.UpdateAvailableItemCounts(item.ItemId));
+                    }
+
+                    ImGui.TextWrapped($"Text Command(s).\nSeparate commands with ;\nUse [] instead of <>");
+                    if (ImGui.InputText($"###{item.ItemName}-TextCommand", ref itemCommand, 300))
+                    {
+                        Svc.Log.Info($"Setting command for {item.ItemName}: {itemCommand}");
+                        item.TextCommand = itemCommand;
+
+                        P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
+                        P.Config.Save();
+
+                        Task.Run(() => P.UpdateAvailableItemCounts(item.ItemId));
+                    }  
+                }
             }
         }
     }
