@@ -17,6 +17,7 @@ public class Configuration : IPluginConfiguration
     public Dictionary<ulong, List<ItemDisplayModel>> ItemDisplays = new();
 
     public bool ShowDisplay { get; set; } = true;
+    public bool MoveMode { get; set; } = false;
 
 
     // the below exist just to make saving less cumbersome

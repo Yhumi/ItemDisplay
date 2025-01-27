@@ -17,5 +17,6 @@ namespace ItemDisplay.Model
 
         public string? TextCommand { get; set; }
         public bool ShowDisplay { get; set; } = true;
+        public float Scale { get; set; } = 1f;
     }
 }

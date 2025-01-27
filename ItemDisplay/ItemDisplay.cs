@@ -21,6 +21,7 @@ using static FFXIVClientStructs.FFXIV.Client.UI.Misc.CharaView.Delegates;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Game.Inventory;
 using ECommons.EzEventManager;
+using ImGuiNET;
 
 namespace ItemDisplay;
 
@@ -81,6 +82,7 @@ public sealed class ItemDisplay : IDalamudPlugin
         if (UpdatingItem) return;
         if (!InventoryService.InventoryAccess() || !InventoryService.SaddlebagAccess()) return;
 
+        if (Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BetweenAreas]) return;
         if (ItemModelsForUpdate.TryDequeue(out var item))
         {
             Svc.Log.Debug($"[FrameworkUpdate] Updating from tick for {item.ItemName}");
@@ -276,7 +278,20 @@ public sealed class ItemDisplay : IDalamudPlugin
         {
             var newUi = new ItemDisplayUI(model);
             DisplayUIs.Add(model.ItemId, newUi);
-        }  
+        }
+    }
+
+    public async Task UpdateMoveMode(bool moveMode)
+    {
+        P.Config.MoveMode = moveMode;
+        P.Config.Save();
+
+        Svc.Log.Debug($"Move mode: {moveMode}");
+
+        foreach (var ui in DisplayUIs)
+        {
+            ui.Value.UpdateMoveMode();
+        }
     }
 
     public async Task RemoveItemUI(ItemDisplayModel model)

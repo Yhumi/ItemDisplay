@@ -25,17 +25,24 @@ namespace ItemDisplay.UI
     {
         private ItemDisplayModel ItemModel;
 
+        private Vector2 imageStart = new Vector2(2f, 2f);
+        private Vector2 imageSize = new Vector2(64f, 64f);
+
+        private readonly Vector2 baseImageSize = new Vector2(64f, 64f);
+
         public ItemDisplayUI(ItemDisplayModel model) : base($"###ItemDisplayUI-{model.ItemId}", 
-            ImGuiWindowFlags.NoDecoration | ImGuiNET.ImGuiWindowFlags.NoBackground)
+            ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoResize)
         {
             RespectCloseHotkey = false;
             IsOpen = true;
-
-            this.SetMinSize(80f, 80f);
-            Size = ImGuiHelpers.ScaledVector2(80f, 80f);
             
             ItemModel = model;
             P.ws.AddWindow(this);
+
+            imageSize = baseImageSize * ItemModel.Scale;
+
+            if (!P.Config.MoveMode)
+                Flags |= ImGuiWindowFlags.NoMove;
         }
 
         public void Dispose()
@@ -47,6 +54,25 @@ namespace ItemDisplay.UI
         public void UpdateItemModel(ItemDisplayModel model)
         {
             ItemModel = model;
+            imageSize = baseImageSize * ItemModel.Scale;
+        }
+
+        public void UpdateMoveMode()
+        {
+            Flags ^= ImGuiWindowFlags.NoMove;
+        }
+
+        public override void PreDraw()
+        {
+            base.PreDraw();
+            ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(0f, 0f));
+            ImGui.SetNextWindowSize(new Vector2(imageSize.X + (imageStart.X * 2f), imageSize.Y + (imageStart.Y * 2f)));
+        }
+
+        public override void PostDraw()
+        {
+            ImGui.PopStyleVar();
+            base.PostDraw();
         }
 
         public override async void Draw()
@@ -62,13 +88,14 @@ namespace ItemDisplay.UI
                 icon.TryGetWrap(out var wrap, out _);
                 if (wrap != null)
                 {
-                    if (String.IsNullOrWhiteSpace(ItemModel.TextCommand))
+                    ImGui.SetCursorPos(new Vector2(ImGui.GetCursorPos().X + imageStart.X, ImGui.GetCursorPos().Y + imageStart.Y));
+                    if (String.IsNullOrWhiteSpace(ItemModel.TextCommand) || P.Config.MoveMode)
                     {
-                        ImGui.Image(wrap.ImGuiHandle, ImGuiHelpers.ScaledVector2(64f, 64f), Vector2.Zero, Vector2.One);
+                        ImGui.Image(wrap.ImGuiHandle, imageSize, Vector2.Zero, Vector2.One);
                     }
                     else
                     {
-                        if(ImGui.ImageButton(wrap.ImGuiHandle, ImGuiHelpers.ScaledVector2(64f, 64f), Vector2.Zero, Vector2.One, 0))
+                        if(ImGui.ImageButton(wrap.ImGuiHandle, imageSize, Vector2.Zero, Vector2.One, 0))
                         {
                             string[] commandList = ItemModel.TextCommand.Contains(';') ? ItemModel.TextCommand.Split(';') : [ItemModel.TextCommand];
                             foreach (var command in commandList)
@@ -79,13 +106,12 @@ namespace ItemDisplay.UI
                             }
                         }
                     }
-                    
 
                     DrawQuantText(
-                        new Vector2(ImGui.GetWindowPos().X + 74f, ImGui.GetWindowPos().Y + 47f), 
+                        new Vector2(ImGui.GetWindowPos().X + imageStart.X + imageSize.X, ImGui.GetWindowPos().Y + imageStart.Y + imageSize.Y), 
                         $"x{ItemModel.ItemCount:n0}", 
                         ImGuiColors.DalamudWhite,
-                        ImGuiHelpers.GlobalScale * 1.42f,
+                        1.3f * ItemModel.Scale,
                         true, false);
                 }
             }  
@@ -97,9 +123,10 @@ namespace ItemDisplay.UI
             var drawList = ImGui.GetWindowDrawList();
             var stringSize = ImGui.CalcTextSize(text) * scale;
 
+            drawPosition = new Vector2(drawPosition.X, drawPosition.Y - stringSize.Y);
             if (alignRight)
             {
-                drawPosition = new Vector2(drawPosition.X - stringSize.X, drawPosition.Y);
+                drawPosition = new Vector2(drawPosition.X - stringSize.X - 1f, drawPosition.Y);
             }   
 
             if (debug)

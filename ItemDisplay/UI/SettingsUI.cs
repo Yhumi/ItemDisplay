@@ -75,12 +75,20 @@ namespace ItemDisplay.UI
             if (itemDisplays == null) itemDisplays = new();
 
             bool ShowDisplay = P.Config.ShowDisplay;
+            bool MoveMode = P.Config.MoveMode;
 
             if (ImGui.Checkbox("Show Display Windows", ref ShowDisplay))
             {
                 Task.Run(() => SetupItemDisplay(ShowDisplay));
             }
-            ImGuiComponents.HelpMarker($"Draw the windows/UI edits tied to the Materia Melding window in game.");
+            ImGuiComponents.HelpMarker($"Show/Hide all Item Displays.");
+
+            if (ImGui.Checkbox("Enable ItemDisplay Movement", ref MoveMode))
+            {
+                Task.Run(() => P.UpdateMoveMode(MoveMode));
+            }
+            ImGuiComponents.HelpMarker($"Allow the clicking and dragging of Item Displays.");
+            ImGui.TextWrapped("Note: Move mode will disable macro functionality while enabled.");
 
             ImGui.Separator();
 
@@ -111,6 +119,7 @@ namespace ItemDisplay.UI
             {
                 var itemCommand = item.TextCommand ?? string.Empty;
                 var showDisplay = item.ShowDisplay;
+                var itemScale = item.Scale;
 
                 if (ImGui.CollapsingHeader($"{item.ItemName} ({item.ItemId})"))
                 {
@@ -124,7 +133,17 @@ namespace ItemDisplay.UI
                         Task.Run(() => P.UpdateAvailableItemCounts(item.ItemId));
                     }
 
-                    ImGui.TextWrapped($"Text Command(s).\nSeparate commands with ;\nUse [] instead of <>");
+                    if (ImGui.SliderFloat("Item Size Scaling", ref itemScale, 0.1f, 10f))
+                    {
+                        item.Scale = itemScale;
+
+                        P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
+                        P.Config.Save();
+
+                        Task.Run(() => P.UpdateAvailableItemCounts(item.ItemId));
+                    }
+
+                    ImGui.TextWrapped($"Text Command(s)");
                     if (ImGui.InputText($"###{item.ItemName}-TextCommand", ref itemCommand, 300))
                     {
                         Svc.Log.Info($"Setting command for {item.ItemName}: {itemCommand}");
@@ -134,7 +153,8 @@ namespace ItemDisplay.UI
                         P.Config.Save();
 
                         Task.Run(() => P.UpdateAvailableItemCounts(item.ItemId));
-                    }  
+                    }
+                    ImGui.TextWrapped($"Separate commands with ;\nUse [] instead of <>");
                 }
             }
         }
