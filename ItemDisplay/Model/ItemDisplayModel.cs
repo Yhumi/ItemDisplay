@@ -12,6 +12,8 @@ namespace ItemDisplay.Model
         public string ItemName { get; set; }
         public uint ItemId { get; set; }
 
+        public uint IconId { get; set; } = 0;
+
         public int ItemCount { get { return InventoryCount + SaddlebagCount; } }
         public int InventoryCount { get; set; } = 0;
         public int SaddlebagCount { get; set; } = 0;

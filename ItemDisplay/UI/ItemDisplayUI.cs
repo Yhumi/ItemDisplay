@@ -29,6 +29,7 @@ namespace ItemDisplay.UI
         private Vector2 imageSize = new Vector2(64f, 64f);
 
         private readonly Vector2 baseImageSize = new Vector2(64f, 64f);
+        private IDalamudTextureWrap? iconTextureWrap = null;
 
         public ItemDisplayUI(ItemDisplayModel model) : base($"###ItemDisplayUI-{model.Id}", 
             ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoResize)
@@ -68,6 +69,8 @@ namespace ItemDisplay.UI
             ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(0f, 0f));
             ImGui.PushStyleVar(ImGuiStyleVar.Alpha, ItemModel.Opacity);
             ImGui.SetNextWindowSize(new Vector2(imageSize.X + (imageStart.X * 2f), imageSize.Y + (imageStart.Y * 2f)));
+
+            P.Icons.TryLoadIcon(ItemModel.IconId, out iconTextureWrap);
         }
 
         public override void PostDraw()
@@ -80,44 +83,35 @@ namespace ItemDisplay.UI
         {
             if (!P.Config.ShowDisplay) return;
             if (!ItemModel.ShowDisplay) return;
+            if (iconTextureWrap == null) return;
 
-            var iconId = LuminaService.GetIconId(ItemModel.ItemId);
-            var icon = Svc.Texture.GetFromGameIcon(new GameIconLookup(iconId));
-
-            if (icon != null)
+            ImGui.SetCursorPos(new Vector2(ImGui.GetCursorPos().X + imageStart.X, ImGui.GetCursorPos().Y + imageStart.Y));
+            if (String.IsNullOrWhiteSpace(ItemModel.TextCommand) || P.Config.MoveMode)
             {
-                icon.TryGetWrap(out var wrap, out _);
-                if (wrap != null)
+                ImGui.Image(iconTextureWrap.ImGuiHandle, imageSize, Vector2.Zero, Vector2.One);
+            }
+            else
+            {
+                if(ImGui.ImageButton(iconTextureWrap.ImGuiHandle, imageSize, Vector2.Zero, Vector2.One, 0))
                 {
-                    ImGui.SetCursorPos(new Vector2(ImGui.GetCursorPos().X + imageStart.X, ImGui.GetCursorPos().Y + imageStart.Y));
-                    if (String.IsNullOrWhiteSpace(ItemModel.TextCommand) || P.Config.MoveMode)
+                    string[] commandList = ItemModel.TextCommand.Contains(';') ? ItemModel.TextCommand.Split(';') : [ItemModel.TextCommand];
+                    foreach (var command in commandList)
                     {
-                        ImGui.Image(wrap.ImGuiHandle, imageSize, Vector2.Zero, Vector2.One);
+                        if (String.IsNullOrWhiteSpace(command)) continue;
+                        var textCommand = CommandService.FormatCommand(command);
+                        Task.Run(() => Chat.SendMessage($"{textCommand}"));
                     }
-                    else
-                    {
-                        if(ImGui.ImageButton(wrap.ImGuiHandle, imageSize, Vector2.Zero, Vector2.One, 0))
-                        {
-                            string[] commandList = ItemModel.TextCommand.Contains(';') ? ItemModel.TextCommand.Split(';') : [ItemModel.TextCommand];
-                            foreach (var command in commandList)
-                            {
-                                if (String.IsNullOrWhiteSpace(command)) continue;
-                                var textCommand = CommandService.FormatCommand(command);
-                                Task.Run(() => Chat.SendMessage($"{textCommand}"));
-                            }
-                        }
-                    }
-
-                    if (!ItemModel.ShowCount) return;
-
-                    DrawQuantText(
-                        new Vector2(ImGui.GetWindowPos().X + imageStart.X + imageSize.X, ImGui.GetWindowPos().Y + imageStart.Y + imageSize.Y), 
-                        $"x{ItemModel.ItemCount:n0}", 
-                        ImGuiColors.DalamudWhite,
-                        P.Config.TextScale * ItemModel.Scale,
-                        true, false);
                 }
-            }  
+            }
+
+            if (!ItemModel.ShowCount) return;
+
+            DrawQuantText(
+                new Vector2(ImGui.GetWindowPos().X + imageStart.X + imageSize.X, ImGui.GetWindowPos().Y + imageStart.Y + imageSize.Y), 
+                $"x{ItemModel.ItemCount:n0}", 
+                ImGuiColors.DalamudWhite,
+                P.Config.TextScale * ItemModel.Scale,
+                true, false);
         }
 
         private static void DrawQuantText(Vector2 drawPosition, string text, Vector4 color, float scale, bool alignRight = false, bool debug = false)

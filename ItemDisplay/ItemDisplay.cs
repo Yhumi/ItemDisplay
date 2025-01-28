@@ -174,6 +174,9 @@ public sealed class ItemDisplay : IDalamudPlugin
             {
                 Svc.Log.Info($"Fetching count for {item.ItemName}");
 
+                if (item.IconId == 0)
+                    item.IconId = LuminaService.GetIconId(item.ItemId);
+
                 var updatedFully = SetItemCountsOnModel(item);
                 if (!updatedFully) requireUpdating.Add(item);
 
@@ -189,6 +192,9 @@ public sealed class ItemDisplay : IDalamudPlugin
     {
         P.Config.ItemDisplays.TryGetValue(Svc.ClientState.LocalContentId, out var itemDisplays);
         if (itemDisplays == null) itemDisplays = new();
+
+        var iconId = LuminaService.GetIconId(model.ItemId);
+        model.IconId = iconId;
           
         Svc.Log.Info($"Fetching count for {model.ItemName}");
 

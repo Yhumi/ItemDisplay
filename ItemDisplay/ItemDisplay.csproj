@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.SDK/11.0.0">
     <PropertyGroup>
-        <Version>1.2.0.0</Version>
+        <Version>1.2.1.0</Version>
         <Description>Item Display</Description>
         <PackageProjectUrl>https://github.com/Yhumi/ItemDisplay</PackageProjectUrl>
         <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
