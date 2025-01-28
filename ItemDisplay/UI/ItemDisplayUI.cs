@@ -30,7 +30,7 @@ namespace ItemDisplay.UI
 
         private readonly Vector2 baseImageSize = new Vector2(64f, 64f);
 
-        public ItemDisplayUI(ItemDisplayModel model) : base($"###ItemDisplayUI-{model.ItemId}", 
+        public ItemDisplayUI(ItemDisplayModel model) : base($"###ItemDisplayUI-{model.Id}", 
             ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoResize)
         {
             RespectCloseHotkey = false;
@@ -66,12 +66,13 @@ namespace ItemDisplay.UI
         {
             base.PreDraw();
             ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(0f, 0f));
+            ImGui.PushStyleVar(ImGuiStyleVar.Alpha, ItemModel.Opacity);
             ImGui.SetNextWindowSize(new Vector2(imageSize.X + (imageStart.X * 2f), imageSize.Y + (imageStart.Y * 2f)));
         }
 
         public override void PostDraw()
         {
-            ImGui.PopStyleVar();
+            ImGui.PopStyleVar(2);
             base.PostDraw();
         }
 

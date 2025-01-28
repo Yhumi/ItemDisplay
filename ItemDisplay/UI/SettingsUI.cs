@@ -11,6 +11,8 @@ using System.Text;
 using System.Threading.Tasks;
 using Dalamud.Interface.Components;
 using static FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentMiragePrismPrismBox.Delegates;
+using OtterGui;
+using System.Numerics;
 
 namespace ItemDisplay.UI
 {
@@ -31,7 +33,7 @@ namespace ItemDisplay.UI
             this.RespectCloseHotkey = false;
             this.SizeConstraints = new()
             {
-                MinimumSize = new(400, 200),
+                MinimumSize = new(540, 400),
             };
             P.ws.AddWindow(this);
         }
@@ -52,16 +54,16 @@ namespace ItemDisplay.UI
             ItemName = string.Empty;
         }
 
-        public async void RemoveItemDisplay(string itemName)
-        {
-            var itemId = LuminaService.GetItemIdByItemName(itemName);
-            Svc.Log.Info($"{itemName} id: {itemId}");
-            if (itemId != 0)
-            {
-                Task.Run(() => P.RemoveItem(itemId));
-            }
-            ItemName = string.Empty;
-        }
+        //public async void RemoveItemDisplay(string itemName)
+        //{
+        //    var itemId = LuminaService.GetItemIdByItemName(itemName);
+        //    Svc.Log.Info($"{itemName} id: {itemId}");
+        //    if (itemId != 0)
+        //    {
+        //        Task.Run(() => P.RemoveItem(item));
+        //    }
+        //    ItemName = string.Empty;
+        //}
 
         public async void SetupItemDisplay(bool showDisplay)
         {
@@ -109,19 +111,9 @@ namespace ItemDisplay.UI
             if (ImGui.Button("Add new Item Display"))
             {           
                 Svc.Log.Info($"Adding item: {ItemName}");
-                if (ItemName != string.Empty && !itemDisplays.Any(x => x.ItemName.ToLower() == ItemName.ToLower()))
+                if (ItemName != string.Empty)
                 {
                     Task.Run(() => CreateItemDisplay(ItemName));
-                }
-            }
-
-            ImGui.SameLine();
-            if (ImGui.Button("Remove Item Display"))
-            {
-                Svc.Log.Info($"Removing item: {ItemName}");
-                if (ItemName != string.Empty && itemDisplays.Any(x => x.ItemName.ToLower() == ItemName.ToLower()))
-                {
-                    Task.Run(() => RemoveItemDisplay(ItemName));
                 }
             }
 
@@ -133,52 +125,69 @@ namespace ItemDisplay.UI
                 var showDisplay = item.ShowDisplay;
                 var showCount = item.ShowCount;
                 var itemScale = item.Scale;
+                var itemOpacity = item.Opacity;
 
-                if (ImGui.CollapsingHeader($"{item.ItemName} ({item.ItemId})"))
+                if (ImGui.CollapsingHeader($"{item.ItemName} ({item.Id})"))
                 {
-                    if (ImGui.Checkbox($"Show Display###Disp-{item.ItemId}", ref showDisplay))
+                    if (ImGui.Checkbox($"Show Display###Disp-{item.Id}", ref showDisplay))
                     {
                         item.ShowDisplay = showDisplay;
 
                         P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
                         P.Config.Save();
 
-                        Task.Run(() => P.UpdateAvailableItemCounts(item.ItemId));
+                        Task.Run(() => P.UpdateAvailableItemCounts(item.Id));
                     }
-                    
-
-                    if (ImGui.Checkbox($"Show Count###Count-{item.ItemId}", ref showCount))
+                    ImGui.SameLine();
+                    if (ImGui.Checkbox($"Show Count###Count-{item.Id}", ref showCount))
                     {
                         item.ShowCount = showCount;
 
                         P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
                         P.Config.Save();
 
-                        Task.Run(() => P.UpdateAvailableItemCounts(item.ItemId));
+                        Task.Run(() => P.UpdateAvailableItemCounts(item.Id));
+                    }
+                    ImGui.SameLine(ImGui.GetWindowWidth() / 2);
+                    if (ImGuiUtil.DrawDisabledButton($"Delete Set###{item.Id}-DeleteItemDisplay", default, "Delete Current Selection. Hold control while clicking.", !ImGui.GetIO().KeyCtrl, false))
+                    {
+                        Task.Run(() => P.RemoveItem(item.Id));
                     }
 
-                    if (ImGui.SliderFloat($"Item Size Scaling###Scale-{item.ItemId}", ref itemScale, 0.1f, 10f))
+                    if (ImGui.SliderFloat($"Item Size Scaling###Scale-{item.Id}", ref itemScale, 0.1f, 10f))
                     {
                         item.Scale = itemScale;
 
                         P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
                         P.Config.Save();
 
-                        Task.Run(() => P.UpdateAvailableItemCounts(item.ItemId));
+                        Task.Run(() => P.UpdateAvailableItemCounts(item.Id));
+                    }
+
+                    if (ImGui.SliderFloat($"Item Opacity###Opacity-{item.Id}", ref itemOpacity, 0f, 1f))
+                    {
+                        item.Opacity = itemOpacity;
+
+                        P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
+                        P.Config.Save();
+
+                        Task.Run(() => P.UpdateAvailableItemCounts(item.Id));
                     }
 
                     ImGui.TextWrapped($"Text Command(s)");
-                    if (ImGui.InputText($"###{item.ItemName}-TextCommand", ref itemCommand, 300))
+                    if (ImGui.InputText($"###{item.Id}-TextCommand", ref itemCommand, 300))
                     {
-                        Svc.Log.Info($"Setting command for {item.ItemName}: {itemCommand}");
+                        Svc.Log.Info($"Setting command for {item.Id}: {itemCommand}");
                         item.TextCommand = itemCommand;
 
                         P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
                         P.Config.Save();
 
-                        Task.Run(() => P.UpdateAvailableItemCounts(item.ItemId));
+                        Task.Run(() => P.UpdateAvailableItemCounts(item.Id));
                     }
                     ImGui.TextWrapped($"Separate commands with ;\nUse [] instead of <>");
+
+                    
                 }
             }
         }

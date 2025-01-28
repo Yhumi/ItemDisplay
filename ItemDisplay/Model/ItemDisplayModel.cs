@@ -8,6 +8,7 @@ namespace ItemDisplay.Model
 {
     public class ItemDisplayModel
     {
+        public Guid Id { get; set; } = Guid.NewGuid();
         public string ItemName { get; set; }
         public uint ItemId { get; set; }
 
@@ -19,5 +20,6 @@ namespace ItemDisplay.Model
         public string? TextCommand { get; set; }
         public bool ShowDisplay { get; set; } = true;
         public float Scale { get; set; } = 1f;
+        public float Opacity { get; set; } = 1f;
     }
 }

@@ -42,4 +42,15 @@ public class Configuration : IPluginConfiguration
             return new();
         }
     }
+
+    public void Update()
+    {
+        if (Version == 0)
+        {
+            Version += 1;
+        }
+
+        Version = 1;
+        P.Config.Save();
+    }
 }

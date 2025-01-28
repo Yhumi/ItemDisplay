@@ -29,13 +29,14 @@ public sealed class ItemDisplay : IDalamudPlugin
 {
     public string Name => "ItemDisplay";
     private const string ItemDisplayCommand = "/itemdisplay";
+    private int CurrentConfigVersion = 1;
 
     internal static ItemDisplay P = null;
     internal SettingsUI PluginUi;
     internal WindowSystem ws;
     internal Configuration Config;
 
-    internal Dictionary<uint, ItemDisplayUI> DisplayUIs = new();
+    internal Dictionary<Guid, ItemDisplayUI> DisplayUIs = new();
 
     internal Queue<ItemDisplayModel> ItemModelsForUpdate = new();
     internal bool UpdatingItem = false;
@@ -49,6 +50,11 @@ public sealed class ItemDisplay : IDalamudPlugin
 
         P = this;
         P.Config = Configuration.Load();
+
+        if (P.Config.Version < CurrentConfigVersion)
+        {
+            P.Config.Update();
+        }
         
         LuminaService.Init();
 
@@ -77,19 +83,19 @@ public sealed class ItemDisplay : IDalamudPlugin
         Task.Run(() => LoadItems());
     }
 
-    private void FrameworkUpdate(object _)
-    {
-        if (UpdatingItem) return;
-        if (!InventoryService.InventoryAccess() || !InventoryService.SaddlebagAccess()) return;
+    //private void FrameworkUpdate(object _)
+    //{
+    //    if (UpdatingItem) return;
+    //    if (!InventoryService.InventoryAccess() || !InventoryService.SaddlebagAccess()) return;
 
-        if (Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BetweenAreas]) return;
-        if (ItemModelsForUpdate.TryDequeue(out var item))
-        {
-            Svc.Log.Debug($"[FrameworkUpdate] Updating from tick for {item.ItemName}");
-            UpdatingItem = true;
-            Task.Run(() => UpdateFromTick(item.ItemId));
-        }
-    }
+    //    if (Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BetweenAreas]) return;
+    //    if (ItemModelsForUpdate.TryDequeue(out var item))
+    //    {
+    //        Svc.Log.Debug($"[FrameworkUpdate] Updating from tick for {item.ItemName}");
+    //        UpdatingItem = true;
+    //        Task.Run(() => UpdateFromTick(item.ItemId));
+    //    }
+    //}
 
     private void PlayerLoggedOut(int type, int code)
     {
@@ -148,16 +154,11 @@ public sealed class ItemDisplay : IDalamudPlugin
         {
             if (itemDisplays == null) return;
 
-            var intersectList = itemDisplays
-                .Select(x => x.ItemId)
-                .Intersect(events.Select(x => x.Item.ItemId));
-            if (intersectList.Any())
+            var intersectList = itemDisplays.Where(x => events.Select(x => x.Item.ItemId).Contains(x.ItemId)).ToList();
+
+            foreach (var item in intersectList)
             {
-                foreach (var item in intersectList)
-                {
-                    var e = events.First(x => x.Item.ItemId == item);
-                    Task.Run(() => UpdateAvailableItemCounts(item));                  
-                }
+                Task.Run(() => UpdateAvailableItemCounts(item.Id));                  
             }
         }
     }
@@ -181,15 +182,6 @@ public sealed class ItemDisplay : IDalamudPlugin
 
             P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
             P.Config.Save();
-
-            //foreach (var item in requireUpdating)
-            //{
-            //    if (!ItemModelsForUpdate.Any(x => x.ItemId == item.ItemId))
-            //    {
-            //        Svc.Log.Debug($"Queueing {item.ItemName} for update.");
-            //        ItemModelsForUpdate.Enqueue(item);
-            //    }   
-            //}    
         }
     }
 
@@ -209,21 +201,15 @@ public sealed class ItemDisplay : IDalamudPlugin
 
         P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
         P.Config.Save();
-
-        //if (!updatedFully && !ItemModelsForUpdate.Any(x => x.ItemId == model.ItemId))
-        //{
-        //    Svc.Log.Debug($"Queueing {model.ItemName} for update.");
-        //    ItemModelsForUpdate.Enqueue(model);
-        //}
     }
 
-    public async Task RemoveItem(uint itemId)
+    public async Task RemoveItem(Guid id)
     {
         if (P.Config.ItemDisplays.TryGetValue(Svc.ClientState.LocalContentId, out var itemDisplays))
         {
             if (itemDisplays == null) itemDisplays = new();
 
-            var model = itemDisplays.FirstOrDefault(x => x.ItemId == itemId);
+            var model = itemDisplays.FirstOrDefault(x => x.Id == id);
             if (model != null)
             {
                 itemDisplays.Remove(model);
@@ -235,13 +221,13 @@ public sealed class ItemDisplay : IDalamudPlugin
         }
     }
 
-    public async Task UpdateAvailableItemCounts(uint itemId)
+    public async Task UpdateAvailableItemCounts(Guid id)
     {
         if (P.Config.ItemDisplays.TryGetValue(Svc.ClientState.LocalContentId, out var itemDisplays))
         {
             if (itemDisplays == null) itemDisplays = new();
 
-            var item = itemDisplays.Where(x => x.ItemId == itemId).FirstOrDefault();
+            var item = itemDisplays.Where(x => x.Id == id).FirstOrDefault();
             bool fullyUpdated = true;
             if (item != null)
             {
@@ -249,7 +235,7 @@ public sealed class ItemDisplay : IDalamudPlugin
 
                 Svc.Log.Info($"Count: {item.ItemCount}");
 
-                if (DisplayUIs.TryGetValue(itemId, out var itemDisplay))
+                if (DisplayUIs.TryGetValue(id, out var itemDisplay))
                 {
                     itemDisplay.UpdateItemModel(item);
                 }
@@ -257,27 +243,15 @@ public sealed class ItemDisplay : IDalamudPlugin
 
             P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
             P.Config.Save();
-
-            //if (item != null && !fullyUpdated && !ItemModelsForUpdate.Any(x => x.ItemId == item.ItemId))
-            //{
-            //    Svc.Log.Debug($"Queueing {item.ItemName} for update.");
-            //    ItemModelsForUpdate.Enqueue(item);
-            //}
         }
-    }
-
-    public async Task UpdateFromTick(uint itemId)
-    {
-        await UpdateAvailableItemCounts(itemId);
-        UpdatingItem = false;
     }
 
     public async Task AddItemUI(ItemDisplayModel model)
     {
-        if (!DisplayUIs.ContainsKey(model.ItemId))
+        if (!DisplayUIs.ContainsKey(model.Id))
         {
             var newUi = new ItemDisplayUI(model);
-            DisplayUIs.Add(model.ItemId, newUi);
+            DisplayUIs.Add(model.Id, newUi);
         }
     }
 
@@ -297,10 +271,10 @@ public sealed class ItemDisplay : IDalamudPlugin
     public async Task RemoveItemUI(ItemDisplayModel model)
     {
         Svc.Log.Info($"Removing Item Display for {model.ItemName}");
-        if (DisplayUIs.TryGetValue(model.ItemId, out var itemDisplay))
+        if (DisplayUIs.TryGetValue(model.Id, out var itemDisplay))
         {
             itemDisplay.Dispose();
-            DisplayUIs.Remove(model.ItemId);
+            DisplayUIs.Remove(model.Id);
         }
     }
 
