@@ -4,8 +4,10 @@ using Dalamud.Interface.Textures;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
+using ECommons;
 using ECommons.DalamudServices;
 using ECommons.ImGuiMethods;
+using FFXIVClientStructs.FFXIV.Client.Game;
 using ImGuiNET;
 using ImGuiScene;
 using ItemDisplay.Model;
@@ -29,7 +31,8 @@ namespace ItemDisplay.UI
         private Vector2 imageSize = new Vector2(64f, 64f);
 
         private readonly Vector2 baseImageSize = new Vector2(64f, 64f);
-        private IDalamudTextureWrap? iconTextureWrap = null;
+        private IDalamudTextureWrap iconTextureWrap;
+        private bool iconLoaded = false;
 
         public ItemDisplayUI(ItemDisplayModel model) : base($"###ItemDisplayUI-{model.Id}", 
             ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoResize)
@@ -39,6 +42,8 @@ namespace ItemDisplay.UI
             
             ItemModel = model;
             P.ws.AddWindow(this);
+
+            DisableWindowSounds = true;
 
             imageSize = baseImageSize * ItemModel.Scale;
 
@@ -63,6 +68,24 @@ namespace ItemDisplay.UI
             Flags ^= ImGuiWindowFlags.NoMove;
         }
 
+        public override bool DrawConditions()
+        {
+            if (Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BetweenAreas]) return false;
+
+            if (ItemModel.Instances.Count > 0 && 
+                (Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BoundByDuty] ||
+                Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BoundByDuty56] ||
+                Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BoundByDuty95]))
+            {
+                var duty = DutyService.GetCurrentInstanceId();
+                if (duty == 0) return P.Config.ShowDisplay && ItemModel.ShowDisplay;
+
+                return ItemModel.Instances.Contains(duty);
+            }
+
+            return P.Config.ShowDisplay && ItemModel.ShowDisplay;
+        }
+
         public override void PreDraw()
         {
             base.PreDraw();
@@ -70,7 +93,7 @@ namespace ItemDisplay.UI
             ImGui.PushStyleVar(ImGuiStyleVar.Alpha, ItemModel.Opacity);
             ImGui.SetNextWindowSize(new Vector2(imageSize.X + (imageStart.X * 2f), imageSize.Y + (imageStart.Y * 2f)));
 
-            P.Icons.TryLoadIcon(ItemModel.IconId, out iconTextureWrap);
+            iconLoaded = ThreadLoadImageHandler.TryGetIconTextureWrap(ItemModel.IconId, true, out iconTextureWrap);
         }
 
         public override void PostDraw()
@@ -81,9 +104,7 @@ namespace ItemDisplay.UI
 
         public override async void Draw()
         {
-            if (!P.Config.ShowDisplay) return;
-            if (!ItemModel.ShowDisplay) return;
-            if (iconTextureWrap == null) return;
+            if (!iconLoaded) return;
 
             ImGui.SetCursorPos(new Vector2(ImGui.GetCursorPos().X + imageStart.X, ImGui.GetCursorPos().Y + imageStart.Y));
             if (String.IsNullOrWhiteSpace(ItemModel.TextCommand) || P.Config.MoveMode)
@@ -94,16 +115,17 @@ namespace ItemDisplay.UI
             {
                 if(ImGui.ImageButton(iconTextureWrap.ImGuiHandle, imageSize, Vector2.Zero, Vector2.One, 0))
                 {
-                    string[] commandList = ItemModel.TextCommand.Contains(';') ? ItemModel.TextCommand.Split(';') : [ItemModel.TextCommand];
+                    string[] commandList = ItemModel.TextCommand.Contains('\n') ? ItemModel.TextCommand.Split('\n') : [ItemModel.TextCommand];
                     foreach (var command in commandList)
                     {
                         if (String.IsNullOrWhiteSpace(command)) continue;
                         var textCommand = CommandService.FormatCommand(command);
-                        Task.Run(() => Chat.SendMessage($"{textCommand}"));
+                        P.TM.Enqueue(() => Chat.SendMessage($"{textCommand}"));
                     }
                 }
             }
 
+            if (ItemModel.Type != ItemDisplayType.Item) return;
             if (!ItemModel.ShowCount) return;
 
             DrawQuantText(

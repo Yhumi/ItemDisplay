@@ -13,6 +13,7 @@ using Dalamud.Interface.Components;
 using static FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentMiragePrismPrismBox.Delegates;
 using OtterGui;
 using System.Numerics;
+using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
 
 namespace ItemDisplay.UI
 {
@@ -21,6 +22,10 @@ namespace ItemDisplay.UI
         private bool visible = false;
 
         private string ItemName = string.Empty;
+        private List<ContentSelection> Content = new();
+
+        private string contentSearch = string.Empty;
+        private bool onlyShowSelected = false;
 
         public bool Visible
         {
@@ -35,6 +40,8 @@ namespace ItemDisplay.UI
             {
                 MinimumSize = new(540, 400),
             };
+
+            Task.Run(() => SetupMapList());
             P.ws.AddWindow(this);
         }
 
@@ -42,28 +49,10 @@ namespace ItemDisplay.UI
         {
         }
 
-        public async void CreateItemDisplay(string itemName)
+        public async void SetupMapList()
         {
-            var itemId = LuminaService.GetItemIdByItemName(itemName);
-            Svc.Log.Info($"{itemName} id: {itemId}");
-            if (itemId != 0)
-            {
-                var newItem = new ItemDisplayModel() { ItemId = itemId, ItemName = itemName };
-                Task.Run(() => P.AddItem(newItem));
-            }
-            ItemName = string.Empty;
+            Content = LuminaService.GetContent();
         }
-
-        //public async void RemoveItemDisplay(string itemName)
-        //{
-        //    var itemId = LuminaService.GetItemIdByItemName(itemName);
-        //    Svc.Log.Info($"{itemName} id: {itemId}");
-        //    if (itemId != 0)
-        //    {
-        //        Task.Run(() => P.RemoveItem(item));
-        //    }
-        //    ItemName = string.Empty;
-        //}
 
         public async void SetupItemDisplay(bool showDisplay)
         {
@@ -75,6 +64,17 @@ namespace ItemDisplay.UI
         {
             P.Config.TextScale = textScale;
             P.Config.Save();
+        }
+
+        private string SelectedInstanceString(List<uint> selected)
+        {
+            if (selected.Count == 0)
+                return "No Instance Selected";
+
+            if (selected.Count == 1)
+                return Content.FirstOrDefault(x => x.ContentId == selected.First()).ContentName;
+
+            return $"{Content.FirstOrDefault(x => x.ContentId == selected.First()).ContentName}, and {selected.Count - 1} others..";
         }
 
         public override async void Draw()
@@ -107,14 +107,15 @@ namespace ItemDisplay.UI
             ImGui.Separator();
 
             ImGui.TextWrapped("Add Item Display");
-            ImGui.InputText("###ItemName", ref ItemName, 150);
-            if (ImGui.Button("Add new Item Display"))
-            {           
-                Svc.Log.Info($"Adding item: {ItemName}");
-                if (ItemName != string.Empty)
-                {
-                    Task.Run(() => CreateItemDisplay(ItemName));
-                }
+            if (ImGui.BeginCombo("###IconSel", $"Open me to add icons...", ImGuiComboFlags.HeightLargest))
+            {
+                var cursor = ImGui.GetCursorPos();
+                ImGui.Dummy(new Vector2(200, ImGuiHelpers.MainViewport.Size.Y * P.Config.SelectorHeight / 100));
+                ImGui.SetCursorPos(cursor);
+
+                P.Selector.Draw();
+
+                ImGui.EndCombo();
             }
 
             ImGui.Separator();
@@ -126,8 +127,12 @@ namespace ItemDisplay.UI
                 var showCount = item.ShowCount;
                 var itemScale = item.Scale;
                 var itemOpacity = item.Opacity;
+                var iconRef = item.IconReference ?? string.Empty;
 
-                if (ImGui.CollapsingHeader($"{item.ItemName} ({item.Id})"))
+                var selectedInstances = item.Instances;
+
+                var header = item.Type == ItemDisplayType.Item ? item.ItemName : $"Icon {item.IconId}";
+                if (ImGui.CollapsingHeader($"{header} ({item.Id})"))
                 {
                     if (ImGui.Checkbox($"Show Display###Disp-{item.Id}", ref showDisplay))
                     {
@@ -136,23 +141,28 @@ namespace ItemDisplay.UI
                         P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
                         P.Config.Save();
 
+                        Task.Run(() => P.CleanupDisplayList());
                         Task.Run(() => P.UpdateAvailableItemCounts(item.Id));
                     }
-                    ImGui.SameLine();
-                    if (ImGui.Checkbox($"Show Count###Count-{item.Id}", ref showCount))
+                    if (item.Type == ItemDisplayType.Item)
                     {
-                        item.ShowCount = showCount;
+                        ImGui.SameLine();
+                        if (ImGui.Checkbox($"Show Count###Count-{item.Id}", ref showCount))
+                        {
+                            item.ShowCount = showCount;
 
-                        P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
-                        P.Config.Save();
+                            P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
+                            P.Config.Save();
 
-                        Task.Run(() => P.UpdateAvailableItemCounts(item.Id));
+                            Task.Run(() => P.UpdateAvailableItemCounts(item.Id));
+                        }
                     }
+                    
                     ImGui.SameLine(ImGui.GetWindowWidth() / 2);
-                    if (ImGuiUtil.DrawDisabledButton($"Delete Set###{item.Id}-DeleteItemDisplay", default, "Delete Current Selection. Hold control while clicking.", !ImGui.GetIO().KeyCtrl, false))
+                    if (ImGuiUtil.DrawDisabledButton($"Delete Icon###{item.Id}-DeleteItemDisplay", default, "Delete Current Selection. Hold control & shift while clicking.", !ImGui.GetIO().KeyCtrl || !ImGui.GetIO().KeyShift, false))
                     {
                         Task.Run(() => P.RemoveItem(item.Id));
-                    }
+                    }                    
 
                     if (ImGui.SliderFloat($"Item Size Scaling###Scale-{item.Id}", ref itemScale, 0.1f, 10f))
                     {
@@ -174,8 +184,43 @@ namespace ItemDisplay.UI
                         Task.Run(() => P.UpdateAvailableItemCounts(item.Id));
                     }
 
+                    if (ImGui.BeginCombo($"Zone###Zone-{item.Id}", SelectedInstanceString(selectedInstances)))
+                    {
+                        ImGui.Text("Search");
+                        ImGui.SameLine();
+                        ImGui.InputText($"###ContentSearch-{item.Id}", ref contentSearch, 100);
+                        ImGui.SameLine();
+                        ImGui.Text("Selected Only");
+                        ImGui.SameLine();
+                        ImGui.Checkbox($"###ContentSelected-{item.Id}", ref onlyShowSelected);
+
+                        foreach (var cfc in Content
+                            .Where(x => !onlyShowSelected || selectedInstances.Contains(x.ContentId))
+                            .Where(x => 
+                                x.ContentName.Contains(contentSearch, StringComparison.InvariantCultureIgnoreCase) 
+                                || x.ContentType.Contains(contentSearch, StringComparison.InvariantCultureIgnoreCase)))
+                        {
+                            if (ImGui.Selectable($"[{cfc.ContentType}] {cfc.ContentName}###ContentSelect-{cfc.ContentId}-{item.Id}", selectedInstances.Contains(cfc.ContentId)))
+                            {
+                                Svc.Log.Debug($"Attempting to remove {cfc.ContentId}");
+                                if (!selectedInstances.Remove(cfc.ContentId))
+                                {
+                                    Svc.Log.Debug($"Attempting to add {cfc.ContentId}");
+                                    selectedInstances.Add(cfc.ContentId);
+                                }
+                                
+                                item.Instances = selectedInstances;
+
+                                P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
+                                P.Config.Save();
+                            }
+                        }
+
+                        ImGui.EndCombo();
+                    }
+
                     ImGui.TextWrapped($"Text Command(s)");
-                    if (ImGui.InputText($"###{item.Id}-TextCommand", ref itemCommand, 300))
+                    if (ImGui.InputTextMultiline($"###{item.Id}-TextCommand", ref itemCommand, 300, ImGuiHelpers.ScaledVector2(ImGui.GetWindowWidth() * 0.7f, 200f)))
                     {
                         Svc.Log.Info($"Setting command for {item.Id}: {itemCommand}");
                         item.TextCommand = itemCommand;
@@ -185,9 +230,7 @@ namespace ItemDisplay.UI
 
                         Task.Run(() => P.UpdateAvailableItemCounts(item.Id));
                     }
-                    ImGui.TextWrapped($"Separate commands with ;\nUse [] instead of <>");
-
-                    
+                    ImGui.TextWrapped($"One command per line.\nUse [] instead of <>");
                 }
             }
         }

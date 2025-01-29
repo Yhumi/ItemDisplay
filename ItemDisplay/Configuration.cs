@@ -2,6 +2,7 @@ using Dalamud.Configuration;
 using Dalamud.Plugin;
 using ECommons.DalamudServices;
 using ItemDisplay.Model;
+using ItemDisplay.Service;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -19,6 +20,7 @@ public class Configuration : IPluginConfiguration
     public bool ShowDisplay { get; set; } = true;
     public bool MoveMode { get; set; } = false;
     public float TextScale { get; set; } = 1.3f;
+    public int SelectorHeight { get; set; } = 33;
 
 
     // the below exist just to make saving less cumbersome
@@ -47,10 +49,31 @@ public class Configuration : IPluginConfiguration
     {
         if (Version == 0)
         {
+            Svc.Log.Info($"Performing Migration to Config v1");
             Version += 1;
         }
 
-        Version = 1;
+        if (Version == 1)
+        {
+            Svc.Log.Info($"Performing Migration to Config v2");
+            var disp = ItemDisplays;
+            foreach (var item in disp)
+            {
+                foreach (var display in item.Value)
+                {
+                    if (display.IconId == 0 && display.ItemId != 0)
+                        display.IconId = LuminaService.GetIconId(display.ItemId);
+
+                    if (display.ItemId != 0)
+                        display.Type = ItemDisplayType.Item;
+                }
+            }
+
+            P.Config.ItemDisplays = disp;
+            Version += 1;
+        }
+
+        Version = 2;
         P.Config.Save();
     }
 }

@@ -22,21 +22,25 @@ using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Game.Inventory;
 using ECommons.EzEventManager;
 using ImGuiNET;
+using ECommons.ImGuiMethods;
+using ECommons.Automation.LegacyTaskManager;
 
 namespace ItemDisplay;
 
 public sealed class ItemDisplay : IDalamudPlugin
 {
-    public string Name => "ItemDisplay";
-    private const string ItemDisplayCommand = "/itemdisplay";
-    private int CurrentConfigVersion = 1;
+    public string Name => "Icon Display";
+    private const string ItemDisplayCommand = "/icondisplay";
+    private int CurrentConfigVersion = 2;
 
     internal static ItemDisplay P = null;
     internal SettingsUI PluginUi;
     internal WindowSystem ws;
     internal Configuration Config;
+    internal TaskManager TM;
 
     internal Dictionary<Guid, ItemDisplayUI> DisplayUIs = new();
+    internal IconSelector Selector;
 
     internal Queue<ItemDisplayModel> ItemModelsForUpdate = new();
     internal bool UpdatingItem = false;
@@ -61,7 +65,9 @@ public sealed class ItemDisplay : IDalamudPlugin
         ws = new();
         Config = P.Config;
         PluginUi = new();
+        Selector = new();
 
+        TM = new() { AbortOnTimeout = true, TimeLimitMS = 20000 };
         Icons = new(Svc.Data, Svc.Texture);
 
         Svc.Commands.AddHandler(ItemDisplayCommand, new CommandInfo(DrawSettingsUICmd)
@@ -77,25 +83,39 @@ public sealed class ItemDisplay : IDalamudPlugin
         Svc.ClientState.Logout += PlayerLoggedOut;
         Svc.ClientState.Login += PlayerLoggedIn;
 
+        Svc.ClientState.TerritoryChanged += TerritoryChange;
+
         //Svc.Framework.Update += FrameworkUpdate;
 
         Style = StyleModel.GetFromCurrent()!;
         Task.Run(() => LoadItems());
     }
 
-    //private void FrameworkUpdate(object _)
-    //{
-    //    if (UpdatingItem) return;
-    //    if (!InventoryService.InventoryAccess() || !InventoryService.SaddlebagAccess()) return;
-
-    //    if (Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BetweenAreas]) return;
-    //    if (ItemModelsForUpdate.TryDequeue(out var item))
-    //    {
-    //        Svc.Log.Debug($"[FrameworkUpdate] Updating from tick for {item.ItemName}");
-    //        UpdatingItem = true;
-    //        Task.Run(() => UpdateFromTick(item.ItemId));
-    //    }
-    //}
+    private void TerritoryChange(ushort e)
+    {
+        var instanceId = DutyService.GetCurrentInstanceId();
+        if (P.Config.ItemDisplays.TryGetValue(Svc.ClientState.LocalContentId, out var itemDisplays))
+        {
+            foreach (var item in itemDisplays.Where(x => x.Instances.Count > 0))
+            {
+                if (instanceId != 0)
+                {
+                    if (item.Instances.Contains(instanceId))
+                        P.TM.Enqueue(async () => await AddItemUI(item));
+                    else
+                        P.TM.Enqueue(async () => await RemoveItemUI(item));
+                }
+                else
+                {
+                    if (item.ShowDisplay)
+                        P.TM.Enqueue(async () => await AddItemUI(item));
+                    else
+                        P.TM.Enqueue(async () => await RemoveItemUI(item));
+                }
+            }
+        }
+        Svc.Log.Info($"Current instance: {DutyService.GetCurrentInstanceId()}");
+    }
 
     private void PlayerLoggedOut(int type, int code)
     {
@@ -123,6 +143,8 @@ public sealed class ItemDisplay : IDalamudPlugin
 
         Svc.ClientState.Logout -= PlayerLoggedOut;
         Svc.ClientState.Login -= PlayerLoggedIn;
+
+        ThreadLoadImageHandler.ClearAll();
 
         //Svc.Framework.Update -= FrameworkUpdate;
 
@@ -168,19 +190,38 @@ public sealed class ItemDisplay : IDalamudPlugin
         if (P.Config.ItemDisplays.TryGetValue(Svc.ClientState.LocalContentId, out var itemDisplays))
         {
             if (itemDisplays == null) itemDisplays = new();
-            var requireUpdating = new List<ItemDisplayModel>();
 
             foreach (var item in itemDisplays)
             {
-                Svc.Log.Info($"Fetching count for {item.ItemName}");
+                if (item.Type == ItemDisplayType.Item)
+                {
+                    Svc.Log.Info($"Fetching count for {item.ItemName}");
+                    SetItemCountsOnModel(item);
+                }
 
-                if (item.IconId == 0)
-                    item.IconId = LuminaService.GetIconId(item.ItemId);
+                var dutyId = DutyService.GetCurrentInstanceId();
+                if (dutyId != 0)
+                {
+                    //In duty, display global ones.
+                    if (item.ShowDisplay && item.Instances.Count == 0)
+                    {
+                        await AddItemUI(item);
+                        continue;
+                    }
 
-                var updatedFully = SetItemCountsOnModel(item);
-                if (!updatedFully) requireUpdating.Add(item);
-
-                await AddItemUI(item);
+                    //Display any for this duty regardless of showDisplay state
+                    if (item.Instances.Contains(dutyId))
+                    {
+                        await AddItemUI(item);
+                        continue;
+                    }
+                }
+                else
+                {
+                    //Not in duty, only display enabled ones - we dont care what duty they're from
+                    if (item.ShowDisplay)
+                        await AddItemUI(item);
+                }
             }
 
             P.Config.ItemDisplays[Svc.ClientState.LocalContentId] = itemDisplays;
@@ -192,15 +233,13 @@ public sealed class ItemDisplay : IDalamudPlugin
     {
         P.Config.ItemDisplays.TryGetValue(Svc.ClientState.LocalContentId, out var itemDisplays);
         if (itemDisplays == null) itemDisplays = new();
-
-        var iconId = LuminaService.GetIconId(model.ItemId);
-        model.IconId = iconId;
           
-        Svc.Log.Info($"Fetching count for {model.ItemName}");
-
-        var updatedFully = SetItemCountsOnModel(model);
-
-        Svc.Log.Info($"Count: {model.ItemCount}");
+        if (model.Type == ItemDisplayType.Item)
+        {
+            Svc.Log.Info($"Fetching count for {model.ItemName}"); 
+            SetItemCountsOnModel(model);
+            Svc.Log.Info($"Count: {model.ItemCount}");
+        }
 
         itemDisplays.Add(model);
         await AddItemUI(model);
@@ -256,9 +295,12 @@ public sealed class ItemDisplay : IDalamudPlugin
     {
         if (!DisplayUIs.ContainsKey(model.Id))
         {
+            Svc.Log.Info($"Adding Item Display for {model.Id}");
             var newUi = new ItemDisplayUI(model);
             DisplayUIs.Add(model.Id, newUi);
         }
+
+        Svc.Log.Debug($"DisplayUI count: {DisplayUIs.Count}");
     }
 
     public async Task UpdateMoveMode(bool moveMode)
@@ -276,11 +318,27 @@ public sealed class ItemDisplay : IDalamudPlugin
 
     public async Task RemoveItemUI(ItemDisplayModel model)
     {
-        Svc.Log.Info($"Removing Item Display for {model.ItemName}");
         if (DisplayUIs.TryGetValue(model.Id, out var itemDisplay))
         {
+            Svc.Log.Info($"Removing Item Display for {model.Id}");
             itemDisplay.Dispose();
             DisplayUIs.Remove(model.Id);
+        }
+        Svc.Log.Debug($"DisplayUI count: {DisplayUIs.Count}");
+    }
+
+    public async Task CleanupDisplayList()
+    {
+        P.Config.ItemDisplays.TryGetValue(Svc.ClientState.LocalContentId, out var itemDisplays);
+        if (itemDisplays == null) return;
+
+        foreach (var item in itemDisplays)
+        {
+            if (P.Config.ShowDisplay && item.ShowDisplay && !DisplayUIs.ContainsKey(item.Id))
+                Task.Run(() => AddItemUI(item));
+
+            if ((!P.Config.ShowDisplay || !item.ShowDisplay) && DisplayUIs.ContainsKey(item.Id))
+                Task.Run(() =>  RemoveItemUI(item));
         }
     }
 
